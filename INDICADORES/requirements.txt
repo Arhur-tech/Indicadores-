@@ -1,0 +1,20 @@
+# Dependências do Dashboard de Indicadores
+# 
+# Este projeto usa apenas bibliotecas padrão do Python
+# Não são necessárias instalações adicionais
+#
+# Bibliotecas utilizadas (já incluídas no Python):
+# - http.server (servidor HTTP)
+# - socketserver (servidor TCP)
+# - webbrowser (abrir navegador)
+# - os (operações do sistema)
+# - sys (argumentos do sistema)
+# - urllib.parse (parsing de URLs)
+# - json (manipulação JSON)
+# - threading (threads)
+# - time (operações de tempo)
+
+# Para instalar dependências (se necessário no futuro):
+# pip install -r requirements.txt
+
+# Versão mínima do Python recomendada: 3.6+
