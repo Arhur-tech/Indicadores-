@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard de Performance dos Funcionários</title>
+  <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    .loading-spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 2s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .metric-card {
+      transition: all 0.3s ease;
+      cursor: pointer;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .metric-card.clickable:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+    }
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-content {
+      background: white;
+      border-radius: 8px;
+      max-width: 90vw;
+      max-height: 90vh;
+      overflow: auto;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+    .table-container {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .insights-modal {
+      max-width: 800px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const API_KEY = 'AIzaSyAQrLGv9wDfyQCmw_Pwgp7GTPa5G52GG9I';
+    const SPREADSHEET_ID = '1uFk7sFY86FnTwK6UznW_UQYzKj4zQf8bm5eOtpF3UKE';
+    const RANGE = 'Análise Geral2!A:K';
+
+    // OpenRouter API Configuration
+    const OPENROUTER_API_KEY = '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';
+    const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+    // Function to sort months chronologically
+    const sortMonthsChronologically = (months) => {
+      return months.sort((a, b) => {
+        const monthNames = {
+          'janeiro': 0, 'fevereiro': 1, 'março': 2, 'abril': 3,
+          'maio': 4, 'junho': 5, 'julho': 6, 'agosto': 7,
+          'setembro': 8, 'outubro': 9, 'novembro': 10, 'dezembro': 11
+        };
+        
+        const parseMonthYear = (monthYear) => {
+          const [month, year] = monthYear.toLowerCase().split(' ');
+          return new Date(parseInt(year), monthNames[month] || 0);
+        };
+        
+        return parseMonthYear(a) - parseMonthYear(b);
+      });
+    };
+
+    // Enhanced AI insights focused on client's employee management
+    const generateInsights = (metrics, filteredData, selectedCompany) => {
+      const insights = [];
+      
+      // Employee engagement and attendance insights
+      if (parseFloat(metrics.avgAttendance) >= 90) {
+        insights.push({
+          type: 'positive',
+          title: 'Excelente Engajamento dos Funcionários',
+          content: `Parabéns! Seus funcionários da ${selectedCompany} demonstram alto comprometimento com uma taxa de presença de ${metrics.avgAttendance}%. Isso reflete positivamente na cultura organizacional e no investimento em desenvolvimento profissional. Considere usar estes funcionários como embaixadores do programa para motivar outros colegas.`,
+          action: 'Reconheça publicamente este engajamento e considere expandir o programa de treinamento.'
+        });
+      } else if (parseFloat(metrics.avgAttendance) >= 75) {
+        insights.push({
+          type: 'info',
+          title: 'Presença Satisfatória - Oportunidade de Melhoria',
+          content: `A taxa de presença de ${metrics.avgAttendance}% está dentro do aceitável, mas há potencial para crescimento. Considere investigar quais fatores podem estar impedindo uma participação ainda maior dos seus funcionários no programa de capacitação.`,
+          action: 'Realize uma pesquisa com os funcionários para identificar barreiras à participação.'
+        });
+      } else {
+        insights.push({
+          type: 'alert',
+          title: 'Atenção: Baixo Engajamento dos Funcionários',
+          content: `A taxa de presença de ${metrics.avgAttendance}% indica que seus funcionários podem estar enfrentando dificuldades para participar do programa. Isso pode impactar o ROI do seu investimento em treinamento e o desenvolvimento da equipe.`,
+          action: 'Revise os horários dos treinamentos e considere formatos alternativos (online, horários flexíveis).'
+        });
+      }
+
+      // Risk analysis with specific employee management recommendations
+      if (metrics.lowPerformers > 0) {
+        const riskPercentage = ((metrics.lowPerformers / metrics.totalEmployees) * 100).toFixed(1);
+        insights.push({
+          type: 'warning',
+          title: `${metrics.lowPerformers} Funcionários Necessitam Atenção Especial`,
+          content: `${riskPercentage}% dos seus funcionários (${metrics.lowPerformers} pessoas) estão com presença abaixo de 75%. Estes colaboradores podem estar desmotivados ou enfrentando dificuldades pessoais/profissionais. Intervenção rápida é crucial para evitar perda de investimento em treinamento e possível rotatividade.`,
+          action: 'Agende conversas individuais com estes funcionários para entender os obstáculos e oferecer suporte personalizado.'
+        });
+      }
+
+      // High performers recognition
+      if (metrics.excellentPerformers > 0) {
+        const excellentPercentage = ((metrics.excellentPerformers / metrics.totalEmployees) * 100).toFixed(1);
+        insights.push({
+          type: 'positive',
+          title: `${metrics.excellentPerformers} Funcionários Exemplares Identificados`,
+          content: `${excellentPercentage}% dos seus funcionários (${metrics.excellentPerformers} pessoas) demonstram excelência com presença ≥90%. Estes são seus talentos mais engajados e podem ser grandes multiplicadores de conhecimento na sua organização.`,
+          action: 'Considere programas de mentoria interna onde estes funcionários podem guiar os colegas.'
+        });
+      }
+
+      // Retention and investment protection
+      if (parseFloat(metrics.retentionRate) < 80) {
+        insights.push({
+          type: 'alert',
+          title: 'Risco de Perda de Investimento em Treinamento',
+          content: `A retenção de ${metrics.retentionRate}% sugere que funcionários estão saindo do programa antes da conclusão. Isso representa perda direta do investimento em capacitação e pode indicar problemas na experiência de aprendizagem ou conflitos com a rotina de trabalho.`,
+          action: 'Implemente um sistema de acompanhamento mais próximo e ajuste o programa conforme feedback dos funcionários.'
+        });
+      } else if (parseFloat(metrics.retentionRate) >= 90) {
+        insights.push({
+          type: 'positive',
+          title: 'Excelente Retenção no Programa',
+          content: `Parabéns! A retenção de ${metrics.retentionRate}% demonstra que seus funcionários estão satisfeitos e engajados com o programa de capacitação. Isso maximiza o retorno do seu investimento em desenvolvimento humano.`,
+          action: 'Documente as práticas de sucesso para replicar em futuros programas de treinamento.'
+        });
+      }
+
+      // Branch performance analysis for resource allocation
+      const branchPerformance = {};
+      const branchEmployeeCount = {};
+      
+      filteredData.forEach(item => {
+        if (!branchPerformance[item.filial]) {
+          branchPerformance[item.filial] = { totalAttendance: 0, count: 0 };
+          branchEmployeeCount[item.filial] = new Set();
+        }
+        branchPerformance[item.filial].totalAttendance += item.attendanceRate;
+        branchPerformance[item.filial].count++;
+        branchEmployeeCount[item.filial].add(item.ra);
+      });
+
+      const branchAnalysis = Object.entries(branchPerformance)
+        .map(([branch, data]) => ({
+          branch,
+          avgAttendance: data.totalAttendance / data.count,
+          employeeCount: branchEmployeeCount[branch].size
+        }))
+        .sort((a, b) => b.avgAttendance - a.avgAttendance);
+
+      if (branchAnalysis.length > 1) {
+        const bestBranch = branchAnalysis[0];
+        const worstBranch = branchAnalysis[branchAnalysis.length - 1];
+        
+        if (bestBranch.avgAttendance - worstBranch.avgAttendance > 15) {
+          insights.push({
+            type: 'info',
+            title: 'Disparidade de Performance Entre Filiais',
+            content: `A filial ${bestBranch.branch} (${bestBranch.avgAttendance.toFixed(1)}% presença) está significativamente melhor que ${worstBranch.branch} (${worstBranch.avgAttendance.toFixed(1)}% presença). Isso pode indicar diferenças na gestão local, cultura organizacional ou recursos disponíveis.`,
+            action: `Organize um benchmark entre as filiais para identificar e replicar as melhores práticas da ${bestBranch.branch}.`
+          });
+        } else {
+          insights.push({
+            type: 'positive',
+            title: 'Performance Consistente Entre Filiais',
+            content: `Todas as filiais apresentam performance similar no programa de treinamento, indicando gestão padronizada e boa comunicação organizacional. Isso facilita a expansão de iniciativas de capacitação.`,
+            action: 'Aproveite esta consistência para implementar programas mais avançados de desenvolvimento.'
+          });
+        }
+      }
+
+      // ROI and business impact insights
+      const totalHoursAttended = filteredData.reduce((sum, item) => sum + (item.aulas - item.faltas), 0);
+      const totalPossibleHours = filteredData.reduce((sum, item) => sum + item.aulas, 0);
+      
+      if (totalPossibleHours > 0) {
+        const utilizationRate = (totalHoursAttended / totalPossibleHours) * 100;
+        insights.push({
+          type: 'info',
+          title: 'Análise de Aproveitamento do Investimento',
+          content: `Seus funcionários aproveitaram ${utilizationRate.toFixed(1)}% das horas de treinamento disponibilizadas (${totalHoursAttended} de ${totalPossibleHours} horas). Cada hora não utilizada representa custo não convertido em desenvolvimento.`,
+          action: 'Calcule o custo por hora de treinamento e implemente estratégias para maximizar a utilização.'
+        });
+      }
+
+      // Seasonal trends if data spans multiple months
+      const monthlyData = {};
+      filteredData.forEach(item => {
+        if (item.monthYear) {
+          if (!monthlyData[item.monthYear]) {
+            monthlyData[item.monthYear] = { totalClasses: 0, totalAbsences: 0 };
+          }
+          monthlyData[item.monthYear].totalClasses += item.aulas || 0;
+          monthlyData[item.monthYear].totalAbsences += item.faltas || 0;
+        }
+      });
+
+      const months = Object.keys(monthlyData);
+      if (months.length > 2) {
+        const monthlyAttendance = months.map(month => {
+          const data = monthlyData[month];
+          return data.totalClasses > 0 ? ((data.totalClasses - data.totalAbsences) / data.totalClasses) * 100 : 0;
+        });
+        
+        const trend = monthlyAttendance[monthlyAttendance.length - 1] - monthlyAttendance[0];
+        
+        if (trend > 5) {
+          insights.push({
+            type: 'positive',
+            title: 'Tendência Positiva de Engajamento',
+            content: `A presença dos seus funcionários melhorou ${trend.toFixed(1)} pontos percentuais ao longo do período analisado. Isso indica que as estratégias de engajamento estão funcionando e a cultura de aprendizagem está se fortalecendo.`,
+            action: 'Continue investindo nas estratégias atuais e considere ampliar o programa.'
+          });
+        } else if (trend < -5) {
+          insights.push({
+            type: 'warning',
+            title: 'Declínio no Engajamento Detectado',
+            content: `A presença dos funcionários diminuiu ${Math.abs(trend).toFixed(1)} pontos percentuais ao longo do período. Isso pode indicar fadiga do programa, mudanças organizacionais ou necessidade de renovação do conteúdo.`,
+            action: 'Investigue as causas do declínio e considere renovar o formato ou conteúdo do treinamento.'
+          });
+        }
+      }
+
+      return insights.length > 0 ? insights : [{
+        type: 'info',
+        title: 'Análise em Andamento',
+        content: 'Continue monitorando o desempenho dos seus funcionários. Mais insights serão gerados conforme mais dados forem coletados.',
+        action: 'Mantenha o acompanhamento regular para identificar tendências e oportunidades.'
+      }];
+    };
+
+    const formatMonthYear = (dateStr) => {
+      if (!dateStr || !/^\d{2}\/\d{2}\/\d{4}$/.test(dateStr)) return { month: null, year: null, monthYear: null };
+      const [day, month, year] = dateStr.split('/');
+      const date = new Date(year, month - 1);
+      return {
+        month: date.toLocaleString('pt-BR', { month: 'long' }),
+        year: year,
+        monthYear: date.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })
+      };
+    };
+
+    const getAttendanceRate = (aulas, faltas) => {
+      if (!aulas || aulas === 0) return 0;
+      return ((aulas - (faltas || 0)) / aulas) * 100;
+    };
+
+    const exportToCSV = (data, filename) => {
+      const headers = ['Empresa', 'Funcionário', 'RA', 'Filial', 'Mês', 'Aulas', 'Faltas', 'Aproveitamento', 'Turma'];
+      const csvContent = [
+        headers.join(','),
+        ...data.map(row => [
+          row.empresa || '',
+          row.aluno || '',
+          row.ra || '',
+          row.filial || '',
+          row.mes || '',
+          row.aulas || 0,
+          row.faltas || 0,
+          row.aproveitamento || '',
+          row.turma || ''
+        ].join(','))
+      ].join('\n');
+      
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+    };
+
+    // New PDF export function
+    const exportToPDF = async (segmentName) => {
+      try {
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('l', 'mm', 'a4'); // landscape orientation
+        
+        // Get dashboard content
+        const dashboardElement = document.getElementById('dashboard-content');
+        
+        // Create canvas from dashboard
+        const canvas = await html2canvas(dashboardElement, {
+          scale: 0.8,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#f9fafb'
+        });
+        
+        const imgData = canvas.toDataURL('image/jpeg', 0.9);
+        const imgWidth = 290; // A4 landscape width minus margins
+        const pageHeight = 210; // A4 landscape height minus margins
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        let heightLeft = imgHeight;
+        let position = 10;
+
+        // Add title page
+        pdf.setFontSize(24);
+        pdf.text(`Dashboard de Performance - ${segmentName}`, 20, 30);
+        pdf.setFontSize(12);
+        pdf.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 20, 45);
+        
+        // Add first page with dashboard image
+        pdf.addPage();
+        pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+
+        // Add additional pages if needed
+        while (heightLeft >= 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight);
+          heightLeft -= pageHeight;
+        }
+
+        // Save PDF
+        pdf.save(`dashboard_${segmentName}_${new Date().toISOString().split('T')[0]}.pdf`);
+      } catch (error) {
+        console.error('Erro ao gerar PDF:', error);
+        alert('Erro ao gerar PDF. Tente novamente.');
+      }
+    };
+
+    // Simplified AI insights with timeout and error handling
+    const generateEnhancedInsights = async (metrics, filteredData, selectedCompany) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+        const prompt = `Analise rapidamente os dados de ${selectedCompany}:
+Funcionários: ${metrics.totalEmployees}, Presença: ${metrics.avgAttendance}%, Em risco: ${metrics.lowPerformers}.
+Forneça 3 insights em JSON: {insights: ["insight1", "insight2", "insight3"]}`;
+
+        const response = await fetch(OPENROUTER_API_URL, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': window.location.origin
+          },
+          body: JSON.stringify({
+            model: 'anthropic/claude-3.5-sonnet',
+            messages: [
+              {
+                role: 'system',
+                content: 'Seja conciso e objetivo. Responda apenas em JSON válido.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            max_tokens: 500,
+            temperature: 0.3
+          })
+        });
+
+        clearTimeout(timeoutId);
+
+        if (response.ok) {
+          const data = await response.json();
+          const aiResponse = JSON.parse(data.choices[0].message.content);
+          
+          return aiResponse.insights.map((insight, index) => ({
+            type: index === 0 ? 'info' : index === 1 ? 'positive' : 'warning',
+            title: `🤖 Insight IA ${index + 1}`,
+            content: insight,
+            action: 'Implementar recomendação baseada em análise inteligente.'
+          }));
+        }
+      } catch (error) {
+        console.warn('IA não disponível, usando insights padrão:', error.message);
+      }
+
+      // Fallback to enhanced static insights
+      return generateInsights(metrics, filteredData, selectedCompany);
+    };
+
+    const Dashboard = () => {
+      const [data, setData] = React.useState([]);
+      const [isLoading, setIsLoading] = React.useState(true);
+      const [error, setError] = React.useState(null);
+      const [selectedCompany, setSelectedCompany] = React.useState(null);
+      const [selectedBranch, setSelectedBranch] = React.useState("TODOS");
+      const [selectedMonth, setSelectedMonth] = React.useState("TODOS");
+      const [selectedYear, setSelectedYear] = React.useState("TODOS");
+      const [searchTerm, setSearchTerm] = React.useState("");
+      const [lastUpdated, setLastUpdated] = React.useState(null);
+      const [activeTab, setActiveTab] = React.useState("overview");
+      const [showModal, setShowModal] = React.useState(false);
+      const [modalData, setModalData] = React.useState([]);
+      const [modalTitle, setModalTitle] = React.useState("");
+      const [showInsightsModal, setShowInsightsModal] = React.useState(false);
+      const [selectedSegment, setSelectedSegment] = React.useState(null);
+      const [aiInsightsEnabled, setAiInsightsEnabled] = React.useState(true);
+      const [enhancedInsights, setEnhancedInsights] = React.useState(null);
+      const [loadingEnhancedInsights, setLoadingEnhancedInsights] = React.useState(false);
+
+      const chartRefs = React.useRef({});
+
+      // Load selected segment on component mount
+      React.useEffect(() => {
+        const savedSegment = localStorage.getItem('selectedSegment');
+        if (savedSegment) {
+          try {
+            const segment = JSON.parse(savedSegment);
+            console.log('Segmento carregado:', segment);
+            setSelectedSegment(segment);
+          } catch (error) {
+            console.error('Erro ao carregar segmento:', error);
+            localStorage.removeItem('selectedSegment');
+          }
+        }
+      }, []);
+
+      // Fetch data from Google Sheet with segment filtering
+      React.useEffect(() => {
+        console.log('Inicializando API do Google Sheets...');
+        gapi.load('client', () => {
+          gapi.client.init({
+            apiKey: API_KEY,
+            discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
+          }).then(() => {
+            console.log('API inicializada, buscando dados...');
+            gapi.client.sheets.spreadsheets.values.get({
+              spreadsheetId: SPREADSHEET_ID,
+              range: RANGE,
+            }).then(
+              response => {
+                console.log('Dados obtidos com sucesso:', response.result);
+                const values = response.result.values;
+                if (values && values.length > 0) {
+                  let parsedData = values.slice(1).map((row, index) => {
+                    const dateInfo = formatMonthYear(row[4]);
+                    return {
+                      id: index,
+                      empresa: row[0] || null,
+                      aluno: row[1] || null,
+                      ra: row[2] || null,
+                      filial: row[3] || null,
+                      mes: row[4] || null,
+                      month: dateInfo.month,
+                      year: dateInfo.year,
+                      monthYear: dateInfo.monthYear,
+                      aulas: row[6] ? parseInt(row[6]) : 0,
+                      faltas: row[7] ? parseInt(row[7]) : 0,
+                      aproveitamento: row[8] ? parseFloat(row[8]) : null,
+                      turma: row[9] || null,
+                      attendanceRate: getAttendanceRate(parseInt(row[6]) || 0, parseInt(row[7]) || 0)
+                    };
+                  }).filter(item => item.empresa && item.aluno && item.ra);
+
+                  // CORREÇÃO: Filter by selected segment if exists
+                  if (selectedSegment && selectedSegment.companies) {
+                    console.log('Filtrando por segmento:', selectedSegment.name, selectedSegment.companies);
+                    parsedData = parsedData.filter(item => 
+                      selectedSegment.companies.includes(item.empresa)
+                    );
+                    console.log('Dados filtrados por segmento:', parsedData.length, 'registros');
+                  }
+                  
+                  console.log('Dados processados:', parsedData);
+                  setData(parsedData);
+                  
+                  // Set first company or segment name
+                  if (selectedSegment) {
+                    setSelectedCompany(selectedSegment.name);
+                  } else {
+                    const firstCompany = [...new Set(parsedData.map(item => item.empresa).filter(Boolean))][0];
+                    setSelectedCompany(firstCompany || "TODOS");
+                  }
+                  
+                  setLastUpdated(new Date());
+                  setIsLoading(false);
+                } else {
+                  setError('Nenhum dado de funcionário encontrado na planilha');
+                  setIsLoading(false);
+                }
+              },
+              error => {
+                const errorMsg = error.result?.error?.message || 'Erro desconhecido';
+                console.error('Erro na API:', error);
+                setError(`Falha ao buscar dados: ${errorMsg}. Verifique se a planilha está acessível publicamente e a chave da API é válida.`);
+                setIsLoading(false);
+              }
+            );
+          }).catch(err => {
+            console.error('Erro na inicialização da API:', err);
+            setError('Falha ao inicializar API do Google Sheets. Verifique a chave da API e conexão de rede.');
+            setIsLoading(false);
+          });
+        });
+      }, [selectedSegment]); // Dependency on selectedSegment
+
+      // Enhanced filter options - CORREÇÃO: Apenas empresas do segmento
+      const companies = selectedSegment 
+        ? selectedSegment.companies 
+        : [...new Set(data.map(item => item.empresa).filter(Boolean))];
+      
+      const branches = ["TODOS", ...new Set(data.map(item => item.filial).filter(Boolean))];
+      const months = ["TODOS", ...new Set(data.map(item => item.month).filter(Boolean))];
+      const years = ["TODOS", ...new Set(data.map(item => item.year).filter(Boolean))].sort();
+      const classes = [...new Set(data.map(item => item.turma).filter(Boolean))];
+
+      // Enhanced filtering - CORREÇÃO: Melhor lógica para segmentos
+      const filteredData = React.useMemo(() => {
+        return data.filter((item) => {
+          // Para segmentos: se uma empresa específica do segmento for selecionada
+          let matchesCompany = true;
+          if (selectedSegment) {
+            if (selectedCompany && selectedCompany !== selectedSegment.name) {
+              // Se uma empresa específica do segmento foi selecionada
+              matchesCompany = item.empresa === selectedCompany;
+            }
+            // Se "Todas do Segmento" está selecionado, já foi filtrado no useEffect
+          } else {
+            // Para visualização normal (todas as empresas)
+            matchesCompany = selectedCompany === "TODOS" || item.empresa === selectedCompany;
+          }
+
+          const matchesBranch = selectedBranch === "TODOS" || item.filial === selectedBranch;
+          const matchesMonth = selectedMonth === "TODOS" || item.month === selectedMonth;
+          const matchesYear = selectedYear === "TODOS" || item.year === selectedYear;
+          const matchesSearch = !searchTerm || 
+            item.aluno?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.ra?.includes(searchTerm) ||
+            item.turma?.toLowerCase().includes(searchTerm.toLowerCase());
+          
+          return matchesCompany && matchesBranch && matchesMonth && matchesYear && matchesSearch;
+        });
+      }, [data, selectedCompany, selectedBranch, selectedMonth, selectedYear, searchTerm, selectedSegment]);
+
+      // Enhanced metrics calculation with detailed employee data
+      const metrics = React.useMemo(() => {
+        if (filteredData.length === 0) {
+          return {
+            totalEmployees: 0,
+            totalClasses: 0,
+            totalAbsences: 0,
+            avgAttendance: 0,
+            avgPerformance: 0,
+            retentionRate: 0,
+            lowPerformers: 0,
+            riskPercentage: 0,
+            excellentPerformers: 0,
+            activeClasses: 0,
+            excellentEmployeesList: [],
+            riskEmployeesList: []
+          };
+        }
+
+        const uniqueEmployees = new Set(filteredData.map(item => item.ra));
+        const totalEmployees = uniqueEmployees.size;
+        const totalClasses = filteredData.reduce((sum, item) => sum + (item.aulas || 0), 0);
+        const totalAbsences = filteredData.reduce((sum, item) => sum + (item.faltas || 0), 0);
+        
+        // Calculate attendance properly by employee with detailed info
+        const employeeAttendance = {};
+        filteredData.forEach(item => {
+          if (!employeeAttendance[item.ra]) {
+            employeeAttendance[item.ra] = { 
+              aulas: 0, 
+              faltas: 0, 
+              nome: item.aluno,
+              ra: item.ra,
+              filial: item.filial,
+              turma: item.turma,
+              empresa: item.empresa,
+              aproveitamento: []
+            };
+          }
+          employeeAttendance[item.ra].aulas += item.aulas || 0;
+          employeeAttendance[item.ra].faltas += item.faltas || 0;
+          if (item.aproveitamento !== null) {
+            employeeAttendance[item.ra].aproveitamento.push(item.aproveitamento);
+          }
+        });
+
+        const avgAttendance = Object.values(employeeAttendance).reduce((sum, emp) => {
+          return sum + getAttendanceRate(emp.aulas, emp.faltas);
+        }, 0) / totalEmployees;
+
+        // Performance metrics
+        const performanceData = filteredData.filter(item => item.aproveitamento !== null && !isNaN(item.aproveitamento));
+        const avgPerformance = performanceData.length > 0 
+          ? performanceData.reduce((sum, item) => sum + item.aproveitamento, 0) / performanceData.length 
+          : 0;
+
+        // Risk analysis - employees with less than 75% attendance
+        const riskEmployees = Object.values(employeeAttendance).filter(emp => 
+          getAttendanceRate(emp.aulas, emp.faltas) < 75
+        );
+
+        // Excellent performers - employees with more than 90% attendance
+        const excellentEmployees = Object.values(employeeAttendance).filter(emp => 
+          getAttendanceRate(emp.aulas, emp.faltas) >= 90
+        );
+
+        // Prepare detailed lists with attendance rates and performance
+        const excellentEmployeesList = excellentEmployees.map(emp => ({
+          ...emp,
+          attendanceRate: getAttendanceRate(emp.aulas, emp.faltas),
+          avgPerformance: emp.aproveitamento.length > 0 
+            ? (emp.aproveitamento.reduce((sum, p) => sum + p, 0) / emp.aproveitamento.length).toFixed(1)
+            : 'N/A'
+        }));
+
+        const riskEmployeesList = riskEmployees.map(emp => ({
+          ...emp,
+          attendanceRate: getAttendanceRate(emp.aulas, emp.faltas),
+          avgPerformance: emp.aproveitamento.length > 0 
+            ? (emp.aproveitamento.reduce((sum, p) => sum + p, 0) / emp.aproveitamento.length).toFixed(1)
+            : 'N/A'
+        }));
+
+        // Retention calculation by comparing different months
+        const employeesByMonth = {};
+        filteredData.forEach(item => {
+          if (item.monthYear && item.ra) {
+            if (!employeesByMonth[item.monthYear]) employeesByMonth[item.monthYear] = new Set();
+            employeesByMonth[item.monthYear].add(item.ra);
+          }
+        });
+
+        const months = Object.keys(employeesByMonth).sort();
+        let retentionRate = 100;
+        if (months.length >= 2) {
+          const firstMonth = employeesByMonth[months[0]];
+          const lastMonth = employeesByMonth[months[months.length - 1]];
+          const retained = [...firstMonth].filter(ra => lastMonth.has(ra)).length;
+          retentionRate = firstMonth.size > 0 ? (retained / firstMonth.size) * 100 : 100;
+        }
+
+        const activeClasses = new Set(filteredData.map(item => item.turma).filter(Boolean)).size;
+
+        return {
+          totalEmployees,
+          totalClasses,
+          totalAbsences,
+          avgAttendance: avgAttendance.toFixed(1),
+          avgPerformance: avgPerformance.toFixed(1),
+          retentionRate: retentionRate.toFixed(1),
+          lowPerformers: riskEmployees.length,
+          riskPercentage: totalEmployees > 0 ? ((riskEmployees.length / totalEmployees) * 100).toFixed(1) : 0,
+          excellentPerformers: excellentEmployees.length,
+          activeClasses,
+          excellentEmployeesList,
+          riskEmployeesList
+        };
+      }, [filteredData]);
+
+      // Modal handlers
+      const showExcellentEmployees = () => {
+        setModalTitle("Funcionários com Excelente Desempenho (≥90% presença)");
+        setModalData(metrics.excellentEmployeesList);
+        setShowModal(true);
+      };
+
+      const showRiskEmployees = () => {
+        setModalTitle("Funcionários em Risco (<75% presença)");
+        setModalData(metrics.riskEmployeesList);
+        setShowModal(true);
+      };
+
+      const closeModal = () => {
+        setShowModal(false);
+        setModalData([]);
+        setModalTitle("");
+      };
+
+      // Insights handlers
+      const showAIInsights = async () => {
+        setShowInsightsModal(true);
+        
+        if (aiInsightsEnabled && !enhancedInsights && !loadingEnhancedInsights) {
+          setLoadingEnhancedInsights(true);
+          try {
+            const enhanced = await generateEnhancedInsights(metrics, filteredData, selectedCompany);
+            setEnhancedInsights(enhanced);
+          } catch (error) {
+            console.error('Erro ao carregar insights IA:', error);
+          } finally {
+            setLoadingEnhancedInsights(false);
+          }
+        }
+      };
+
+      const closeInsightsModal = () => {
+        setShowInsightsModal(false);
+      };
+
+      // Destroy all charts
+      const destroyCharts = () => {
+        Object.values(chartRefs.current).forEach(chart => {
+          if (chart) {
+            chart.destroy();
+          }
+        });
+        chartRefs.current = {};
+      };
+
+      // Enhanced chart rendering
+      React.useEffect(() => {
+        if (!isLoading && !error && filteredData.length > 0) {
+          destroyCharts();
+
+          // 1. Attendance by Branch
+          const attendanceCtx = document.getElementById("attendanceChart")?.getContext("2d");
+          if (attendanceCtx) {
+            const branchData = branches.filter(b => b !== "TODOS").map(branch => {
+              const branchEmployees = filteredData.filter(item => item.filial === branch);
+              const employeeAttendance = {};
+              branchEmployees.forEach(item => {
+                if (!employeeAttendance[item.ra]) {
+                  employeeAttendance[item.ra] = { aulas: 0, faltas: 0 };
+                }
+                employeeAttendance[item.ra].aulas += item.aulas || 0;
+                employeeAttendance[item.ra].faltas += item.faltas || 0;
+              });
+              
+              const attendanceRates = Object.values(employeeAttendance).map(emp => 
+                getAttendanceRate(emp.aulas, emp.faltas)
+              );
+              
+              return attendanceRates.length > 0 
+                ? attendanceRates.reduce((sum, rate) => sum + rate, 0) / attendanceRates.length
+                : 0;
+            });
+
+            chartRefs.current.attendance = new Chart(attendanceCtx, {
+              type: "bar",
+              data: {
+                labels: branches.filter(b => b !== "TODOS"),
+                datasets: [{
+                  label: "Taxa de Presença (%)",
+                  data: branchData,
+                  backgroundColor: branchData.map(val => 
+                    val >= 90 ? "rgba(34, 197, 94, 0.8)" :
+                    val >= 75 ? "rgba(251, 191, 36, 0.8)" : "rgba(239, 68, 68, 0.8)"
+                  ),
+                  borderColor: branchData.map(val => 
+                    val >= 90 ? "rgba(34, 197, 94, 1)" :
+                    val >= 75 ? "rgba(251, 191, 36, 1)" : "rgba(239, 68, 68, 1)"
+                  ),
+                  borderWidth: 1,
+                }],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: { beginAtZero: true, max: 100, title: { display: true, text: 'Taxa de Presença (%)' } },
+                  x: { title: { display: true, text: 'Filial' } },
+                },
+                plugins: {
+                  tooltip: {
+                    callbacks: {
+                      label: (context) => `${context.parsed.y.toFixed(1)}% de presença`
+                    }
+                  }
+                },
+              },
+            });
+          }
+
+          // 2. Monthly Trend Analysis - FIXED SORTING
+          const trendCtx = document.getElementById("trendChart")?.getContext("2d");
+          if (trendCtx) {
+            const monthlyData = {};
+            filteredData.forEach(item => {
+              if (item.monthYear) {
+                if (!monthlyData[item.monthYear]) {
+                  monthlyData[item.monthYear] = {
+                    employees: new Set(),
+                    totalClasses: 0,
+                    totalAbsences: 0,
+                    performance: []
+                  };
+                }
+                monthlyData[item.monthYear].employees.add(item.ra);
+                monthlyData[item.monthYear].totalClasses += item.aulas || 0;
+                monthlyData[item.monthYear].totalAbsences += item.faltas || 0;
+                if (item.aproveitamento !== null) {
+                  monthlyData[item.monthYear].performance.push(item.aproveitamento);
+                }
+              }
+            });
+
+            // Fixed: Sort months chronologically
+            const sortedMonths = sortMonthsChronologically(Object.keys(monthlyData));
+            
+            const attendanceTrend = sortedMonths.map(month => {
+              const data = monthlyData[month];
+              return data.totalClasses > 0 
+                ? ((data.totalClasses - data.totalAbsences) / data.totalClasses) * 100
+                : 0;
+            });
+
+            const performanceTrend = sortedMonths.map(month => {
+              const perfs = monthlyData[month].performance;
+              return perfs.length > 0 
+                ? perfs.reduce((sum, p) => sum + p, 0) / perfs.length
+                : null;
+            });
+
+            chartRefs.current.trend = new Chart(trendCtx, {
+              type: "line",
+              data: {
+                labels: sortedMonths,
+                datasets: [
+                  {
+                    label: "Taxa de Presença (%)",
+                    data: attendanceTrend,
+                    borderColor: "rgba(34, 197, 94, 1)",
+                    backgroundColor: "rgba(34, 197, 94, 0.1)",
+                    yAxisID: 'y',
+                    tension: 0.4,
+                  },
+                  {
+                    label: "Aproveitamento Médio",
+                    data: performanceTrend,
+                    borderColor: "rgba(59, 130, 246, 1)",
+                    backgroundColor: "rgba(59, 130, 246, 0.1)",
+                    yAxisID: 'y1',
+                    tension: 0.4,
+                  }
+                ],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    max: 100,
+                    title: { display: true, text: 'Presença (%)' }
+                  },
+                  y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: { display: true, text: 'Aproveitamento' },
+                    grid: { drawOnChartArea: false },
+                  },
+                },
+              },
+            });
+          }
+
+          // 3. Employee Distribution Pie Chart - Fixed to show only relevant branches
+          const employeeCtx = document.getElementById("employeeChart")?.getContext("2d");
+          if (employeeCtx) {
+            const branchEmployeeData = branches.filter(b => b !== "TODOS").map(branch => ({
+              branch,
+              count: new Set(filteredData.filter(item => item.filial === branch).map(item => item.ra)).size
+            })).filter(item => item.count > 0); // Only include branches with employees
+
+            const branchLabels = branchEmployeeData.map(item => item.branch);
+            const branchCounts = branchEmployeeData.map(item => item.count);
+
+            chartRefs.current.employee = new Chart(employeeCtx, {
+              type: "doughnut",
+              data: {
+                labels: branchLabels,
+                datasets: [{
+                  data: branchCounts,
+                  backgroundColor: [
+                    "rgba(59, 130, 246, 0.8)",
+                    "rgba(34, 197, 94, 0.8)", 
+                    "rgba(251, 191, 36, 0.8)",
+                    "rgba(239, 68, 68, 0.8)",
+                    "rgba(168, 85, 247, 0.8)",
+                    "rgba(236, 72, 153, 0.8)",
+                  ].slice(0, branchLabels.length),
+                }],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { 
+                    position: 'bottom',
+                    labels: {
+                      filter: function(legendItem, chartData) {
+                        return chartData.datasets[0].data[legendItem.index] > 0;
+                      }
+                    }
+                  },
+                  tooltip: {
+                    callbacks: {
+                      label: (context) => `${context.label}: ${context.parsed} funcionários`
+                    }
+                  }
+                },
+              },
+            });
+          }
+
+          // 4. Performance Heatmap (Classes vs Performance)
+          const heatmapCtx = document.getElementById("heatmapChart")?.getContext("2d");
+          if (heatmapCtx) {
+            const classData = classes.map(classe => {
+              const classEmployees = filteredData.filter(item => item.turma === classe);
+              const avgAttendance = classEmployees.reduce((sum, emp) => 
+                sum + emp.attendanceRate, 0) / classEmployees.length;
+              const avgPerformance = classEmployees
+                .filter(emp => emp.aproveitamento !== null)
+                .reduce((sum, emp) => sum + emp.aproveitamento, 0) / 
+                classEmployees.filter(emp => emp.aproveitamento !== null).length;
+              
+              return {
+                x: avgAttendance || 0,
+                y: avgPerformance || 0,
+                label: classe,
+                count: classEmployees.length
+              };
+            }).filter(item => !isNaN(item.x) && !isNaN(item.y));
+
+            chartRefs.current.heatmap = new Chart(heatmapCtx, {
+              type: "scatter",
+              data: {
+                datasets: [{
+                  label: "Turmas",
+                  data: classData,
+                  backgroundColor: "rgba(59, 130, 246, 0.6)",
+                  borderColor: "rgba(59, 130, 246, 1)",
+                  pointRadius: classData.map(item => Math.max(5, item.count * 2)),
+                }],
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                  x: { 
+                    title: { display: true, text: 'Taxa de Presença (%)' },
+                    max: 100 
+                  },
+                  y: { title: { display: true, text: 'Aproveitamento Médio' } },
+                },
+                plugins: {
+                  tooltip: {
+                    callbacks: {
+                      label: (context) => {
+                        const point = context.parsed;
+                        const dataPoint = classData[context.dataIndex];
+                        return [
+                          `Turma: ${dataPoint.label}`,
+                          `Presença: ${point.x.toFixed(1)}%`,
+                          `Aproveitamento: ${point.y.toFixed(1)}`,
+                          `Funcionários: ${dataPoint.count}`
+                        ];
+                      }
+                    }
+                  }
+                },
+              },
+            });
+          }
+        }
+
+        return destroyCharts;
+      }, [filteredData, isLoading, error]);
+
+      if (isLoading) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="text-center">
+              <div className="loading-spinner mx-auto mb-4"></div>
+              <p className="text-gray-600">Carregando dados dos funcionários...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (error) {
+        return (
+          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="bg-white p-8 rounded-lg shadow-lg max-w-md">
+              <div className="text-red-500 text-center mb-4">
+                <svg className="w-16 h-16 mx-auto mb-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2 text-center">Erro ao Carregar Dados</h2>
+              <p className="text-gray-600 text-center">{error}</p>
+              <button 
+                onClick={() => window.location.reload()} 
+                className="w-full mt-4 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 transition-colors"
+              >
+                Tentar Novamente
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-gray-50 p-4 lg:p-6" id="dashboard-content">
+          {/* Enhanced Header */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h1 className="text-2xl lg:text-3xl font-bold text-gray-800 mb-2">
+                  {selectedSegment 
+                    ? `Dashboard de Segmento - ${selectedSegment.name}` 
+                    : `Dashboard de Performance - ${selectedCompany}`}
+                </h1>
+                {selectedSegment && (
+                  <p className="text-sm text-blue-600 mb-2">
+                    Empresas: {selectedSegment.companies.join(', ')}
+                  </p>
+                )}
+                <p className="text-gray-600">
+                  Última atualização: {lastUpdated?.toLocaleString('pt-BR')}
+                  {aiInsightsEnabled && <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">IA Ativa</span>}
+                </p>
+                {selectedSegment && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Visualizando apenas dados das empresas do segmento selecionado
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 mt-4 lg:mt-0">
+                <button
+                  onClick={() => window.location.href = 'segmentos.html'}
+                  className="bg-indigo-500 text-white px-4 py-2 rounded-lg hover:bg-indigo-600 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
+                  </svg>
+                  Gerenciar Segmentos
+                </button>
+                <button
+                  onClick={showAIInsights}
+                  className="bg-purple-500 text-white px-4 py-2 rounded-lg hover:bg-purple-600 transition-colors flex items-center gap-2"
+                  disabled={loadingEnhancedInsights}
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                </svg>
+                {loadingEnhancedInsights ? 'Processando...' : 'Insights IA Pro'}
+                </button>
+                <button
+                  onClick={() => exportToPDF(selectedSegment ? selectedSegment.name : selectedCompany)}
+                  className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clipRule="evenodd" />
+                  </svg>
+                  Exportar PDF
+                </button>
+                <button
+                  onClick={() => exportToCSV(filteredData, `performance_${selectedSegment ? selectedSegment.name : selectedCompany}_${new Date().toISOString().split('T')[0]}.csv`)}
+                  className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+                Exportar Dados
+              </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Segment Summary (if viewing segment) */}
+          {selectedSegment && (
+            <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg shadow-sm p-6 mb-6 text-white">
+              <h2 className="text-xl font-semibold mb-2">Análise do Segmento: {selectedSegment.name}</h2>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="opacity-90">Empresas no Segmento:</p>
+                  <p className="font-semibold">{selectedSegment.companies.length}</p>
+                </div>
+                <div>
+                  <p className="opacity-90">Total de Funcionários:</p>
+                  <p className="font-semibold">{metrics.totalEmployees}</p>
+                </div>
+                <div>
+                  <p className="opacity-90">Performance Média:</p>
+                  <p className="font-semibold">{metrics.avgAttendance}%</p>
+                </div>
+                <div>
+                  <p className="opacity-90">Registros Analisados:</p>
+                  <p className="font-semibold">{data.length}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Enhanced Filters - CORREÇÃO: Melhor controle para segmentos */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-lg font-semibold text-gray-700 mb-4">Filtros Avançados</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+              {!selectedSegment && (
+                <select
+                  className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={selectedCompany || ""}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                >
+                  <option value="">Selecione a Empresa</option>
+                  {companies.map((company) => (
+                    <option key={company} value={company}>{company}</option>
+                  ))}
+                </select>
+              )}
+              
+              {selectedSegment && (
+                <select
+                  className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={selectedCompany || selectedSegment.name}
+                  onChange={(e) => setSelectedCompany(e.target.value)}
+                >
+                  <option value={selectedSegment.name}>Todas do Segmento</option>
+                  {selectedSegment.companies.map((company) => (
+                    <option key={company} value={company}>{company}</option>
+                  ))}
+                </select>
+              )}
+
+              <select
+                className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={selectedBranch}
+                onChange={(e) => setSelectedBranch(e.target.value)}
+              >
+                <option value="TODOS">Todas as Filiais</option>
+                {branches.filter(b => b !== "TODOS").map((branch) => (
+                  <option key={branch} value={branch}>{branch}</option>
+                ))}
+              </select>
+
+              <select
+                className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+              >
+                <option value="TODOS">Todos os Anos</option>
+                {years.filter(y => y !== "TODOS").map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+              <select
+                className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+              >
+                <option value="TODOS">Todos os Meses</option>
+                {months.filter(m => m !== "TODOS").map((month) => (
+                  <option key={month} value={month}>{month}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder="Buscar funcionário..."
+                className="p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <button
+                onClick={() => {
+                  setSelectedBranch("TODOS");
+                  setSelectedMonth("TODOS");
+                  setSelectedYear("TODOS");
+                  setSearchTerm("");
+                  if (selectedSegment) {
+                    setSelectedCompany(selectedSegment.name);
+                  }
+                }}
+                className="p-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              >
+                Limpar Filtros
+              </button>
+            </div>
+            
+            {/* Debug info for segments */}
+            {selectedSegment && (
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-700">
+                  <strong>Debug:</strong> Segmento "{selectedSegment.name}" com {selectedSegment.companies.length} empresas | 
+                  Dados carregados: {data.length} registros | 
+                  Dados filtrados: {filteredData.length} registros
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Enhanced Key Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
+            <div className="metric-card bg-white p-6 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total de Funcionários</p>
+                  <p className="text-3xl font-bold text-blue-600">{metrics.totalEmployees}</p>
+                  <p className="text-xs text-gray-500">{metrics.activeClasses} turmas ativas</p>
+                </div>
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card bg-white p-6 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Taxa de Presença</p>
+                  <p className="text-3xl font-bold text-green-600">{metrics.avgAttendance}%</p>
+                  <p className="text-xs text-gray-500">{metrics.totalClasses} aulas ministradas</p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                </div>
+              </div>
+            </div>
+
+            <div 
+              className="metric-card clickable bg-white p-6 rounded-lg shadow-sm"
+              onClick={showExcellentEmployees}
+              title="Clique para ver detalhes dos funcionários"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Excelentes</p>
+                  <p className="text-3xl font-bold text-green-600">{metrics.excellentPerformers}</p>
+                  <p className="text-xs text-gray-500">≥90% presença</p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+                </div>
+              </div>
+            </div>
+
+            <div className="metric-card bg-white p-6 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Taxa de Retenção</p>
+                  <p className="text-3xl font-bold text-purple-600">{metrics.retentionRate}%</p>
+                </div>
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            <div 
+              className="metric-card clickable bg-white p-6 rounded-lg shadow-sm"
+              onClick={showRiskEmployees}
+              title="Clique para ver detalhes dos funcionários"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Em Risco</p>
+                  <p className="text-3xl font-bold text-red-600">{metrics.lowPerformers}</p>
+                  <p className="text-xs text-gray-500">&lt;75% presença</p>
+                </div>
+                <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Enhanced Charts Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="bg-white p-6 rounded-lg shadow-sm">
+              <h3 className="text-lg font-semibold text-gray-700 mb-4">Presença por Filial</h3>
+              <div className="h-64">
+                <canvas id="attendanceChart"></canvas>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-sm">
+              <h3 className="text-lg font-semibold text-gray-700 mb-4">Distribuição de Funcionários</h3>
+              <div className="h-64">
+                <canvas id="employeeChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="bg-white p-6 rounded-lg shadow-sm">
+              <h3 className="text-lg font-semibold text-gray-700 mb-4">Tendência Temporal</h3>
+              <div className="h-64">
+                <canvas id="trendChart"></canvas>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-sm">
+              <h3 className="text-lg font-semibold text-gray-700 mb-4">Performance por Turma</h3>
+              <div className="h-64">
+                <canvas id="heatmapChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          {/* Insights */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-700 mb-4">Insights e Recomendações</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-blue-800 mb-2">Status Geral</h4>
+                <p className="text-blue-700 text-sm">
+                  {metrics.avgAttendance >= 90 ? "Excelente taxa de presença!" : 
+                   metrics.avgAttendance >= 75 ? "Taxa de presença satisfatória" : 
+                   "Atenção: Taxa de presença abaixo do esperado"}
+                </p>
+              </div>
+              <div className="bg-yellow-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-yellow-800 mb-2">Ações Recomendadas</h4>
+                <p className="text-yellow-700 text-sm">
+                  {metrics.lowPerformers > 0 ? `Acompanhar ${metrics.lowPerformers} funcionários com baixa presença` : 
+                   "Continue o excelente trabalho de engajamento"}
+                </p>
+              </div>
+              <div className="bg-green-50 p-4 rounded-lg">
+                <h4 className="font-semibold text-green-800 mb-2">Próximos Passos</h4>
+                <p className="text-green-700 text-sm">
+                  Analisar dados detalhados por funcionário e implementar estratégias de melhoria
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* AI Insights Modal */}
+          {showInsightsModal && (
+            <div className="modal-overlay" onClick={closeInsightsModal}>
+              <div className="modal-content insights-modal p-6" onClick={(e) => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                    <svg className="w-6 h-6 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+                    </svg>
+                    Insights Estratégicos para {selectedCompany}
+                  </h2>
+                  <button
+                    onClick={closeInsightsModal}
+                    className="text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                
+                <div className="space-y-4 max-h-96 overflow-y-auto">
+                  {loadingEnhancedInsights && (
+                    <div className="text-center py-4">
+                      <div className="loading-spinner mx-auto mb-2"></div>
+                      <p className="text-gray-600">Gerando insights com IA...</p>
+                    </div>
+                  )}
+                  
+                  {(enhancedInsights || generateInsights(metrics, filteredData, selectedCompany)).map((insight, index) => (
+                    <div 
+                      key={index}
+                      className={`p-4 rounded-lg border-l-4 ${
+                        insight.type === 'positive' ? 'bg-green-50 border-green-400' :
+                        insight.type === 'warning' ? 'bg-yellow-50 border-yellow-400' :
+                        insight.type === 'alert' ? 'bg-red-50 border-red-400' :
+                        'bg-blue-50 border-blue-400'
+                      }`}
+                    >
+                      <h3 className={`font-semibold mb-2 ${
+                        insight.type === 'positive' ? 'text-green-800' :
+                        insight.type === 'warning' ? 'text-yellow-800' :
+                        insight.type === 'alert' ? 'text-red-800' :
+                        'text-blue-800'
+                      }`}>
+                        {insight.title}
+                      </h3>
+                      <p className={`text-sm mb-3 ${
+                        insight.type === 'positive' ? 'text-green-700' :
+                        insight.type === 'warning' ? 'text-yellow-700' :
+                       
+                        insight.type === 'alert' ? 'text-red-700' :
+                        'text-blue-700'
+                      }`}>
+                        {insight.content}
+                      </p>
+                      {insight.action && (
+                        <div className={`p-3 rounded-md text-xs font-medium ${
+                          insight.type === 'positive' ? 'bg-green-100 text-green-800' :
+                          insight.type === 'warning' ? 'bg-yellow-100 text-yellow-800' :
+                          insight.type === 'alert' ? 'bg-red-100 text-red-800' :
+                          'bg-blue-100 text-blue-800'
+                        }`}>
+                          <strong>Ação Recomendada:</strong> {insight.action}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="flex justify-between items-center mt-6 pt-4 border-t">
+                  <p className="text-sm text-gray-600">
+                    Insights baseados em {metrics.totalEmployees} funcionários e {metrics.totalClasses} aulas analisadas
+                  </p>
+                  <button
+                    onClick={closeInsightsModal}
+                    className="bg-purple-500 text-white px-6 py-2 rounded-lg hover:bg-purple-600 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Employee Details Modal */}
+          {showModal && (
+            <div className="modal-overlay" onClick={closeModal}>
+              <div className="modal-content p-6" onClick={(e) => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold text-gray-800">{modalTitle}</h2>
+                  <button
+                    onClick={closeModal}
+                    className="text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                
+                <div className="table-container">
+                  <table className="min-w-full bg-white border border-gray-200">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          Nome
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          RA
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          Filial
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          Turma
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          Aulas
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          Faltas
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          % Presença
+                        </th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">
+                          Aproveitamento
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {modalData.map((employee, index) => (
+                        <tr key={index} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.nome}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.ra}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.filial}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.turma}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.aulas}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.faltas}</td>
+                          <td className="px-4 py-3 text-sm">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              employee.attendanceRate >= 90 
+                                ? 'bg-green-100 text-green-800' 
+                                : employee.attendanceRate >= 75 
+                                ? 'bg-yellow-100 text-yellow-800' 
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {employee.attendanceRate.toFixed(1)}%
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900">{employee.avgPerformance}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="flex justify-between items-center mt-4 pt-4 border-t">
+                  <p className="text-sm text-gray-600">
+                    Total: {modalData.length} funcionários
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => exportToCSV(modalData.map(emp => ({
+                        ...emp,
+                        attendanceRate: emp.attendanceRate.toFixed(1) + '%'
+                      })), `${modalTitle.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`)}
+                      className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-colors text-sm"
+                    >
+                      Exportar Lista
+                    </button>
+                    <button
+                      onClick={closeModal}
+                      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition-colors text-sm"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<Dashboard />);
+  </script>
+</body>
+</html>
